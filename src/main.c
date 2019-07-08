@@ -25,6 +25,7 @@ typedef struct {
     char *wget_logfile;
     char *links_file;
     int targettag;
+    int sequeantial_save;
 } args_t;
 
 typedef struct atag_t {
@@ -125,6 +126,9 @@ args_t * parse_args(int argc, char **argv) {
                 }
                 i++;
                 continue;
+            } else if (!strcmp(opt, "sequentialsave")) {
+                args->sequeantial_save = 1;
+                continue;
             } else {
                 fprintf(stderr, "option '%s' is not decrared\n", opt);
                 //free_args();
@@ -200,9 +204,8 @@ void default_args(args_t *args) {
         strcpy(args->links_file, links_file);
     }
 
-    if (args->targettag == 0) {
-        args->targettag = A_TAG;
-    }
+    if (args->targettag == 0) args->targettag = A_TAG;
+    if (args->sequeantial_save == 0) args->sequeantial_save = 0;
 }
 
 void mk_savedir(args_t *args) {
@@ -455,13 +458,6 @@ void output_links(args_t *args, link_t *links) {
     fclose(linksp);
 }
 
-void wget_linksfile(args_t *args) {
-    char wgetcmd[2048];
-    sprintf(wgetcmd, "wget -a %s -i %s", args->wget_logfile, args->links_file);
-    printf("[wget command] %s\n", wgetcmd);
-    system(wgetcmd);
-}
-
 void wget_confilm(link_t *links) {
     link_t *ite = links;
     int links_cnt = 0;
@@ -483,6 +479,28 @@ void wget_confilm(link_t *links) {
     }
 }
 
+void wget_linksfile(args_t *args, link_t *links) {
+    output_links(args, links);
+    wget_confilm(links);
+    char wgetcmd[2048];
+    if (!args->sequeantial_save) {
+        sprintf(wgetcmd, "wget -a %s -i %s", args->wget_logfile, args->links_file);
+        printf("[wget command] %s\n", wgetcmd);
+        system(wgetcmd);
+        return;
+    }
+
+    link_t *ite = links;
+    int links_cnt = 0;
+    while (ite) {
+        sprintf(wgetcmd, "wget -a %s -O %03d %s", args->wget_logfile, links_cnt, ite->value);
+        printf("[wget command] %s\n", wgetcmd);
+        system(wgetcmd);
+        ite = ite->next;
+        links_cnt++;
+    }
+}
+
 int main(int argc, char **argv) {
     args_t *args = parse_args(argc, argv);
     default_args(args);
@@ -491,7 +509,5 @@ int main(int argc, char **argv) {
     wget_mainpage(args);
     mainpage_t *mainpage = parse_mainpage(args);
     link_t *links = get_tag_links(args, mainpage);
-    output_links(args, links);
-    wget_confilm(links);
-    wget_linksfile(args);
+    wget_linksfile(args, links);
 }
