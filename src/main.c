@@ -8,6 +8,14 @@
 #include <unistd.h>
 #include <time.h>
 
+// tags
+#define A_TAG   1
+#define IMG_TAG 2
+
+// attrs
+#define HREF_ATTR 1
+#define SRC_ATTR  2
+
 typedef struct {
     char *url;
     int urllen;
@@ -16,6 +24,7 @@ typedef struct {
     char *targetfmt;
     char *wget_logfile;
     char *links_file;
+    int targettag;
 } args_t;
 
 typedef struct atag_t {
@@ -23,8 +32,14 @@ typedef struct atag_t {
     struct atag_t *next;
 } atag_t;
 
+typedef struct imgtag_t {
+    char *src;
+    struct imgtag_t *next;
+} imgtag_t;
+
 typedef struct {
     atag_t *atags;
+    imgtag_t *imgtags;
 } mainpage_t;
 
 typedef struct link_t {
@@ -95,7 +110,21 @@ args_t * parse_args(int argc, char **argv) {
                 strcpy(args->wget_logfile, argv[i + 1]);
                 i++;
                 continue;
-
+            } else if (!strcmp(opt, "targettag")) {
+                char *targettag = (char *)calloc(strlen(argv[i + 1]) + 1, sizeof(char));
+                if (!targettag) {
+                    fprintf(stderr, "targettag calloc error\n");
+                    //free_args();
+                    exit(1);
+                }
+                strcpy(targettag, argv[i + 1]);
+                if (!strcmp(targettag, "a")) {
+                    args->targettag = A_TAG;
+                } else if (!strcmp(targettag, "img")) {
+                    args->targettag = IMG_TAG;
+                }
+                i++;
+                continue;
             } else {
                 fprintf(stderr, "option '%s' is not decrared\n", opt);
                 //free_args();
@@ -170,6 +199,10 @@ void default_args(args_t *args) {
         }
         strcpy(args->links_file, links_file);
     }
+
+    if (args->targettag == 0) {
+        args->targettag = A_TAG;
+    }
 }
 
 void mk_savedir(args_t *args) {
@@ -212,7 +245,7 @@ void wget_mainpage(args_t *args) {
     fclose(mainpagep);
 }
 
-char * get_atag_href(FILE *mainpagep) {
+char * get_tagattr(FILE *mainpagep, char *attr) {
     char tag_values[2048] = "";
     int tag_value_len = 0;
     char c;
@@ -225,14 +258,16 @@ char * get_atag_href(FILE *mainpagep) {
         tag_values[i] = c;
     }
 
-    char *href_begin = strstr(tag_values, "href");
+    char *href_begin = strstr(tag_values, attr);
     if (!href_begin) return NULL;
 
     char *link_begin = strchr(href_begin, '"');
+    if (!link_begin) link_begin = strchr(href_begin, '\'');
     if (!link_begin) return NULL;
     else link_begin += 1;
 
     char *link_end = strchr(link_begin, '"');
+    if (!link_end) link_end = strchr(link_begin, '\'');
     if (!link_end) return NULL;
     else link_end -= 1;
 
@@ -255,7 +290,7 @@ void get_atag(mainpage_t *mainpage, FILE *mainpagep) {
         fprintf(stderr, "atag calloc error\n");
         exit(1);
     }
-    atag->href = get_atag_href(mainpagep);
+    atag->href = get_tagattr(mainpagep, "href");
 
     if (atag->href) {
         if (!mainpage->atags) {
@@ -269,6 +304,39 @@ void get_atag(mainpage_t *mainpage, FILE *mainpagep) {
         }
     } else {
         free(atag);
+    }
+}
+
+void get_imgtag(mainpage_t *mainpage, FILE *mainpagep) {
+    imgtag_t *imgtag = (imgtag_t *)calloc(1, sizeof (imgtag_t));
+    if (!imgtag) {
+        fprintf(stderr, "imgtag calloc error\n");
+        exit(1);
+    }
+    imgtag->src = get_tagattr(mainpagep, "src");
+
+    if (imgtag->src) {
+        if (!mainpage->imgtags) {
+            mainpage->imgtags = imgtag;
+        } else {
+            imgtag_t *imgtag_ite = mainpage->imgtags;
+            while (imgtag_ite->next) {
+                imgtag_ite = imgtag_ite->next;
+            }
+            imgtag_ite->next = imgtag;
+        }
+    } else {
+        free(imgtag);
+    }
+}
+
+void get_token(FILE *mainpagep, char *token, int token_size) {
+    memset(token, 0, token_size);
+    char c;
+    for (int i = 0; i < token_size - 1; i++) {
+        if ((c = fgetc(mainpagep)) == EOF) return;
+        if (c == ' ' || c == '>') return;
+        token[i] = c;
     }
 }
 
@@ -287,21 +355,27 @@ mainpage_t * parse_mainpage(args_t *args) {
         exit(1);
     }
     char c;
+    int token_size = 10;
+    char token[token_size];
     while ((c = fgetc(mainpagep)) != EOF) {
         if (c == '<') {
-            if (c = fgetc(mainpagep)) {
-                if (c == 'a') {
+            get_token(mainpagep, token, token_size);
+            if (strlen(token)) {
+                if (!strcmp(token, "a")) {
                     get_atag(mainpage, mainpagep);
+                    continue;
+                } else if (!strcmp(token, "img")) {
+                    get_imgtag(mainpage, mainpagep);
+                    continue;
                 }
             }
-            continue;
         }
     }
     fclose(mainpagep);
     return mainpage;
 }
 
-link_t * get_target_links(args_t *args, mainpage_t *mainpage) {
+link_t * get_atag_links(args_t *args, mainpage_t *mainpage) {
     link_t *links = NULL;
     link_t *ite = NULL;
     atag_t *atag = mainpage->atags;
@@ -329,6 +403,42 @@ link_t * get_target_links(args_t *args, mainpage_t *mainpage) {
     return links;
 }
 
+link_t * get_imgtag_links(args_t *args, mainpage_t *mainpage) {
+    link_t *links = NULL;
+    link_t *ite = NULL;
+    imgtag_t *imgtag = mainpage->imgtags;
+    while (imgtag) {
+        if (strstr(imgtag->src, args->targetfmt)) {
+            link_t *link = (link_t *)calloc(1, sizeof (link_t));
+            if (!link) {
+                fprintf(stderr, "links calloc error\n");
+                // free_args()
+                exit(1);
+            }
+            link->value = imgtag->src;
+            link->next = NULL;
+            if (!links) links = link;
+            if (!ite) {
+                ite = link;
+            } else {
+                ite->next = link;
+                ite = link;
+            }
+        }
+        imgtag = imgtag->next;
+    }
+
+    return links;
+}
+
+link_t * get_tag_links(args_t *args, mainpage_t *mainpage) {
+    switch (args->targettag) {
+        case A_TAG:   return get_atag_links(args, mainpage);
+        case IMG_TAG: return get_imgtag_links(args, mainpage);
+    }
+    return NULL;
+}
+
 void output_links(args_t *args, link_t *links) {
     FILE *linksp = fopen(args->links_file, "w+");
     if (!linksp) {
@@ -354,13 +464,15 @@ void wget_linksfile(args_t *args) {
 
 void wget_confilm(link_t *links) {
     link_t *ite = links;
+    int links_cnt = 0;
     printf("====confilm download files====\n");
     while (ite) {
         printf("%s\n", ite->value);
         ite = ite->next;
+        links_cnt++;
     }
     printf("=============================\n");
-    printf("Do you want to download? (y/n) > ");
+    printf("Do you want to download %d files? (y/n) > ", links_cnt);
     char input;
     scanf("%c", &input);
     if (input == 'y') {
@@ -378,7 +490,7 @@ int main(int argc, char **argv) {
     cd_savedir(args);
     wget_mainpage(args);
     mainpage_t *mainpage = parse_mainpage(args);
-    link_t *links = get_target_links(args, mainpage);
+    link_t *links = get_tag_links(args, mainpage);
     output_links(args, links);
     wget_confilm(links);
     wget_linksfile(args);
