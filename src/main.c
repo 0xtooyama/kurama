@@ -24,7 +24,7 @@ struct option long_options[] = {
     {"mainpage", required_argument, NULL, (int)'m'},
     {"logfile", required_argument, NULL, (int)'l'},
     {"tag", required_argument, NULL, (int)'t'},
-    {"seq_name", no_argument, NULL, (int)'1'}
+    {"seq_name", required_argument, NULL, (int)'1'}
 };
 
 typedef struct {
@@ -35,7 +35,7 @@ typedef struct {
     char *mainpage_name;
     char *wget_logfile;
     int targettag;
-    int sequential_save;
+    char *sequential_save;
 
     char *links_file;
 } opts_t;
@@ -69,11 +69,6 @@ opts_t * parse_opts(int argc, char **argv) {
 
     int opt = 0;
     while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:", long_options, NULL)) != -1) {
-        if (opt == '1') { // sequential_save
-            opts->sequential_save = 1;
-            continue;
-        }
-
         char *opt_value = (char *)calloc(strlen(optarg) + 1, sizeof(char));
         if (!opt_value) {
             fprintf(stderr, "opt_value calloc error\n");
@@ -103,6 +98,12 @@ opts_t * parse_opts(int argc, char **argv) {
             case 't':
                 if (!strcmp(opt_value, "a")) opts->targettag = A_TAG;
                 else if (!strcmp(opt_value, "img")) opts->targettag = IMG_TAG;
+                break;
+            case '1':
+                if (opt_value[0] == '.') 
+                    opts->sequential_save = &opt_value[1];
+                else 
+                    opts->sequential_save = opt_value;
                 break;
             default :
                 // free_opts(opts);
@@ -464,7 +465,7 @@ void wget_linksfile(opts_t *opts, link_t *links) {
     output_links(opts, links);
     wget_confilm(links);
     char wgetcmd[2048];
-    if (!opts->sequential_save) {
+    if (opts->sequential_save == NULL) {
         sprintf(wgetcmd, "wget -a %s -i %s", opts->wget_logfile, opts->links_file);
         printf("[wget command] %s\n", wgetcmd);
         system(wgetcmd);
@@ -474,7 +475,7 @@ void wget_linksfile(opts_t *opts, link_t *links) {
     link_t *ite = links;
     int links_cnt = 0;
     while (ite) {
-        sprintf(wgetcmd, "wget -a %s -O %03d %s", opts->wget_logfile, links_cnt, ite->value);
+        sprintf(wgetcmd, "wget -a %s -O %03d.%s %s", opts->wget_logfile, links_cnt, opts->sequential_save, ite->value);
         printf("[wget command] %s\n", wgetcmd);
         system(wgetcmd);
         ite = ite->next;
