@@ -38,6 +38,8 @@ typedef struct {
     char *sequential_save;
 
     char *links_file;
+    char *url_scheme;
+    char *url_root;
 } opts_t;
 
 typedef struct atag_t {
@@ -148,6 +150,32 @@ char * get_now() {
     return now;
 }
 
+char * get_url_scheme(char *url) {
+    char *c = strchr(url, ':') + 1;
+
+    char *url_scheme = (char *)calloc(c - url + 1, sizeof (char));
+    if (!url_scheme) {
+        fprintf(stderr, "url_scheme calloc error\n");
+        exit(1);
+    }
+    strncpy(url_scheme, url, c - url);
+    return url_scheme;
+}
+
+char * get_url_root(char *url) {
+    char *c = strchr(url, '/');
+    c = strchr(c + 1, '/');
+    c = strchr(c + 1, '/');
+
+    char *url_root = (char *)calloc(c - url + 1, sizeof (char));
+    if (!url_root) {
+        fprintf(stderr, "url_root calloc error\n");
+        exit(1);
+    }
+    strncpy(url_root, url, c - url);
+    return url_root;
+}
+
 void default_opts(opts_t *opts) {
     if (opts->savedir == NULL) {
         opts->savedir = get_now();
@@ -188,6 +216,9 @@ void default_opts(opts_t *opts) {
 
     if (opts->targettag == 0) opts->targettag = A_TAG;
     if (opts->sequential_save == 0) opts->sequential_save = 0;
+
+    opts->url_scheme = get_url_scheme(opts->url);
+    opts->url_root = get_url_root(opts->url);
 }
 
 void mk_savedir(opts_t *opts) {
@@ -360,6 +391,27 @@ mainpage_t * parse_mainpage(opts_t *opts) {
     return mainpage;
 }
 
+char * get_url(char *url_scheme, char *link) {
+    char *url = NULL;
+    if (link[0] != '/' && link[1] != '/') {
+        url = (char *)calloc(strlen(link) + 1, sizeof (char));
+        if (!url) {
+            fprintf(stderr, "url calloc error\n");
+            exit(1);
+        }
+        strcpy(url, link);
+        return url;
+    }
+    url = (char *)calloc(strlen(url_scheme) + strlen(link) + 1, sizeof (char));
+    if (!url) {
+        fprintf(stderr, "url calloc error\n");
+        exit(1);
+    }
+    strcpy(url, url_scheme);
+    strcpy(&url[strlen(url_scheme)], link);
+    return url;
+}
+
 link_t * get_atag_links(opts_t *opts, mainpage_t *mainpage) {
     link_t *links = NULL;
     link_t *ite = NULL;
@@ -372,7 +424,7 @@ link_t * get_atag_links(opts_t *opts, mainpage_t *mainpage) {
                 // free_opts()
                 exit(1);
             }
-            link->value = atag->href;
+            link->value = get_url(opts->url_scheme, atag->href);
             link->next = NULL;
             if (!links) links = link;
             if (!ite) {
@@ -400,7 +452,7 @@ link_t * get_imgtag_links(opts_t *opts, mainpage_t *mainpage) {
                 // free_opts()
                 exit(1);
             }
-            link->value = imgtag->src;
+            link->value = get_url(opts->url_scheme, imgtag->src);
             link->next = NULL;
             if (!links) links = link;
             if (!ite) {
