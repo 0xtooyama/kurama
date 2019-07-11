@@ -535,6 +535,19 @@ void wget_linksfile(opts_t *opts, link_t *links) {
     }
 }
 
+void show_result(opts_t *opts) {
+    FILE *wget_logfile = fopen(opts->wget_logfile, "r");
+    if (!wget_logfile) {
+        fprintf(stderr, "wget_logfile open failed.\n");
+        //free_opts()
+        exit(1);
+    }
+    char result[1024];
+    while (fgets(result, 1024, wget_logfile) != NULL) {}
+    fclose(wget_logfile);
+    printf("Finish.\n[Result] %s\n", result);
+}
+
 int main(int argc, char **argv) {
     opts_t *opts = parse_opts(argc, argv);
     default_opts(opts);
@@ -544,4 +557,5 @@ int main(int argc, char **argv) {
     mainpage_t *mainpage = parse_mainpage(opts);
     link_t *links = get_tag_links(opts, mainpage);
     wget_linksfile(opts, links);
+    show_result(opts);
 }
