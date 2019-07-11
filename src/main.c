@@ -24,7 +24,9 @@ struct option long_options[] = {
     {"mainpage", required_argument, NULL, (int)'m'},
     {"logfile", required_argument, NULL, (int)'l'},
     {"tag", required_argument, NULL, (int)'t'},
-    {"seq_name", required_argument, NULL, (int)'1'}
+    {"seq_name", required_argument, NULL, (int)'1'},
+    {"redownload", optional_argument, NULL, (int)'r'},
+    {0, 0, 0, 0}
 };
 
 typedef struct {
@@ -36,10 +38,12 @@ typedef struct {
     char *wget_logfile;
     int targettag;
     char *sequential_save;
+    int redownload;
 
     char *links_file;
     char *url_scheme;
     char *url_root;
+    int *redownload_seq_name;
 } opts_t;
 
 typedef struct atag_t {
@@ -68,9 +72,10 @@ opts_t * parse_opts(int argc, char **argv) {
         fprintf(stderr, "opts calloc error\n");
         exit(1);
     }
+    //TODO init_opts_t(opts);
 
     int opt = 0;
-    while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:r::", long_options, NULL)) != -1) {
         char *opt_value = (char *)calloc(strlen(optarg) + 1, sizeof(char));
         if (!opt_value) {
             fprintf(stderr, "opt_value calloc error\n");
@@ -78,7 +83,8 @@ opts_t * parse_opts(int argc, char **argv) {
             exit(1);
         }
 
-        strcpy(opt_value, optarg);
+        if (optarg == NULL) free(opt_value);
+        else strcpy(opt_value, optarg);
 
         switch (opt) {
             case 'u': 
@@ -107,6 +113,13 @@ opts_t * parse_opts(int argc, char **argv) {
                 else 
                     opts->sequential_save = opt_value;
                 break;
+            case 'r':
+                opts->redownload = 1;
+                if (opt_value != NULL) {
+                    if (opt_value[0] == '=') opts->redownload_links_file = &opt_value[1];
+                    else opts->redownload_links_file = opt_value;
+                }
+                break;
             default :
                 // free_opts(opts);
                 exit(1);
@@ -123,6 +136,8 @@ opts_t * parse_opts(int argc, char **argv) {
         strcpy(opts->url, argv[optind]);
         opts->urllen = strlen(argv[optind]);
     }
+
+    //TODO check consistency
 
     return opts;
 }
@@ -215,7 +230,6 @@ void default_opts(opts_t *opts) {
     }
 
     if (opts->targettag == 0) opts->targettag = A_TAG;
-    if (opts->sequential_save == 0) opts->sequential_save = 0;
 
     opts->url_scheme = get_url_scheme(opts->url);
     opts->url_root = get_url_root(opts->url);
@@ -535,6 +549,13 @@ void wget_linksfile(opts_t *opts, link_t *links) {
     }
 }
 
+void wget_redownload(opts_t *opts, link_t *links) {
+    if (opts->sequential_save == NULL) {
+        wget_linksfile(opts, links);
+        return;
+    }
+}
+
 void show_result(opts_t *opts) {
     FILE *wget_logfile = fopen(opts->wget_logfile, "r");
     if (!wget_logfile) {
@@ -551,11 +572,18 @@ void show_result(opts_t *opts) {
 int main(int argc, char **argv) {
     opts_t *opts = parse_opts(argc, argv);
     default_opts(opts);
-    mk_savedir(opts);
-    cd_savedir(opts);
-    wget_mainpage(opts);
-    mainpage_t *mainpage = parse_mainpage(opts);
-    link_t *links = get_tag_links(opts, mainpage);
-    wget_linksfile(opts, links);
+
+    if (opts->redownload) {
+        link_t *links = get_redonwload_links(opts);
+        wget_redownload(opts, links);
+    } else {
+        mk_savedir(opts);
+        cd_savedir(opts);
+        wget_mainpage(opts);
+        mainpage_t *mainpage = parse_mainpage(opts);
+        link_t *links = get_tag_links(opts, mainpage);
+        wget_linksfile(opts, links);
+    }
+
     show_result(opts);
 }
