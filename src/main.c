@@ -24,7 +24,9 @@ struct option long_options[] = {
     {"mainpage", required_argument, NULL, (int)'m'},
     {"logfile", required_argument, NULL, (int)'l'},
     {"tag", required_argument, NULL, (int)'t'},
-    {"seq_name", required_argument, NULL, (int)'1'}
+    {"seq_name", required_argument, NULL, (int)'1'},
+    {"redownload", no_argument, NULL, (int)'r'},
+    {0, 0, 0, 0}
 };
 
 typedef struct {
@@ -36,10 +38,12 @@ typedef struct {
     char *wget_logfile;
     int targettag;
     char *sequential_save;
+    int redownload;
 
     char *links_file;
     char *url_scheme;
     char *url_root;
+    int *redownload_seq_name;
 } opts_t;
 
 typedef struct atag_t {
@@ -57,10 +61,10 @@ typedef struct {
     imgtag_t *imgtags;
 } mainpage_t;
 
-typedef struct link_t {
+typedef struct list_t {
     char *value;
-    struct link_t *next;
-} link_t;
+    struct list_t *next;
+} list_t;
 
 opts_t * parse_opts(int argc, char **argv) {
     opts_t *opts = (opts_t *)calloc(1, sizeof(opts_t));
@@ -68,17 +72,22 @@ opts_t * parse_opts(int argc, char **argv) {
         fprintf(stderr, "opts calloc error\n");
         exit(1);
     }
+    //TODO init_opts_t(opts);
 
     int opt = 0;
-    while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:", long_options, NULL)) != -1) {
-        char *opt_value = (char *)calloc(strlen(optarg) + 1, sizeof(char));
-        if (!opt_value) {
-            fprintf(stderr, "opt_value calloc error\n");
-            //free_opts();
-            exit(1);
+    while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:r", long_options, NULL)) != -1) {
+        char *opt_value = NULL;
+        if (optarg != 0) {
+            opt_value = (char *)calloc(strlen(optarg) + 1, sizeof(char));
+            if (!opt_value) {
+                fprintf(stderr, "opt_value calloc error\n");
+                //free_opts();
+                exit(1);
+            }
         }
 
-        strcpy(opt_value, optarg);
+        if (optarg == NULL) free(opt_value);
+        else strcpy(opt_value, optarg);
 
         switch (opt) {
             case 'u': 
@@ -102,10 +111,13 @@ opts_t * parse_opts(int argc, char **argv) {
                 else if (!strcmp(opt_value, "img")) opts->targettag = IMG_TAG;
                 break;
             case '1':
-                if (opt_value[0] == '.') 
+                if (opt_value[0] == '.')
                     opts->sequential_save = &opt_value[1];
-                else 
+                else
                     opts->sequential_save = opt_value;
+                break;
+            case 'r':
+                opts->redownload = 1;
                 break;
             default :
                 // free_opts(opts);
@@ -123,6 +135,8 @@ opts_t * parse_opts(int argc, char **argv) {
         strcpy(opts->url, argv[optind]);
         opts->urllen = strlen(argv[optind]);
     }
+
+    //TODO check consistency
 
     return opts;
 }
@@ -215,10 +229,11 @@ void default_opts(opts_t *opts) {
     }
 
     if (opts->targettag == 0) opts->targettag = A_TAG;
-    if (opts->sequential_save == 0) opts->sequential_save = 0;
 
-    opts->url_scheme = get_url_scheme(opts->url);
-    opts->url_root = get_url_root(opts->url);
+    if (opts->url) {
+        opts->url_scheme = get_url_scheme(opts->url);
+        opts->url_root = get_url_root(opts->url);
+    }
 }
 
 void mk_savedir(opts_t *opts) {
@@ -412,13 +427,13 @@ char * get_url(char *url_scheme, char *link) {
     return url;
 }
 
-link_t * get_atag_links(opts_t *opts, mainpage_t *mainpage) {
-    link_t *links = NULL;
-    link_t *ite = NULL;
+list_t * get_atag_links(opts_t *opts, mainpage_t *mainpage) {
+    list_t *links = NULL;
+    list_t *ite = NULL;
     atag_t *atag = mainpage->atags;
     while (atag) {
         if (strstr(atag->href, opts->targetfmt)) {
-            link_t *link = (link_t *)calloc(1, sizeof (link_t));
+            list_t *link = (list_t *)calloc(1, sizeof (list_t));
             if (!link) {
                 fprintf(stderr, "links calloc error\n");
                 // free_opts()
@@ -440,13 +455,13 @@ link_t * get_atag_links(opts_t *opts, mainpage_t *mainpage) {
     return links;
 }
 
-link_t * get_imgtag_links(opts_t *opts, mainpage_t *mainpage) {
-    link_t *links = NULL;
-    link_t *ite = NULL;
+list_t * get_imgtag_links(opts_t *opts, mainpage_t *mainpage) {
+    list_t *links = NULL;
+    list_t *ite = NULL;
     imgtag_t *imgtag = mainpage->imgtags;
     while (imgtag) {
         if (strstr(imgtag->src, opts->targetfmt)) {
-            link_t *link = (link_t *)calloc(1, sizeof (link_t));
+            list_t *link = (list_t *)calloc(1, sizeof (list_t));
             if (!link) {
                 fprintf(stderr, "links calloc error\n");
                 // free_opts()
@@ -468,7 +483,7 @@ link_t * get_imgtag_links(opts_t *opts, mainpage_t *mainpage) {
     return links;
 }
 
-link_t * get_tag_links(opts_t *opts, mainpage_t *mainpage) {
+list_t * get_tag_links(opts_t *opts, mainpage_t *mainpage) {
     switch (opts->targettag) {
         case A_TAG:   return get_atag_links(opts, mainpage);
         case IMG_TAG: return get_imgtag_links(opts, mainpage);
@@ -476,14 +491,14 @@ link_t * get_tag_links(opts_t *opts, mainpage_t *mainpage) {
     return NULL;
 }
 
-void output_links(opts_t *opts, link_t *links) {
+void output_links(opts_t *opts, list_t *links) {
     FILE *linksp = fopen(opts->links_file, "w+");
     if (!linksp) {
         fprintf(stderr, "open linksp failed.\n");
         //free_opts()
         exit(1);
     }
-    link_t *ite = links;
+    list_t *ite = links;
     while (ite) {
         fputs(ite->value, linksp);
         fputc('\n', linksp);
@@ -492,8 +507,8 @@ void output_links(opts_t *opts, link_t *links) {
     fclose(linksp);
 }
 
-void wget_confilm(link_t *links) {
-    link_t *ite = links;
+void wget_confilm(list_t *links) {
+    list_t *ite = links;
     int links_cnt = 0;
     printf("====confilm download files====\n");
     while (ite) {
@@ -513,7 +528,7 @@ void wget_confilm(link_t *links) {
     }
 }
 
-void wget_linksfile(opts_t *opts, link_t *links) {
+void wget_linksfile(opts_t *opts, list_t *links) {
     output_links(opts, links);
     wget_confilm(links);
     char wgetcmd[2048];
@@ -524,7 +539,7 @@ void wget_linksfile(opts_t *opts, link_t *links) {
         return;
     }
 
-    link_t *ite = links;
+    list_t *ite = links;
     int links_cnt = 0;
     while (ite) {
         sprintf(wgetcmd, "wget -a %s -O %03d.%s %s", opts->wget_logfile, links_cnt, opts->sequential_save, ite->value);
@@ -532,6 +547,31 @@ void wget_linksfile(opts_t *opts, link_t *links) {
         system(wgetcmd);
         ite = ite->next;
         links_cnt++;
+    }
+}
+
+void wget_redownload(opts_t *opts, list_t *links) {
+    wget_confilm(links);
+    char wgetcmd[2048];
+    list_t *ite = links;
+
+    if (opts->sequential_save == NULL) {
+        while (ite) {
+            sprintf(wgetcmd, "wget -a %s %s", opts->wget_logfile, ite->value);
+            printf("[wget command] %s\n", wgetcmd);
+            system(wgetcmd);
+            ite = ite->next;
+        }
+        return;
+    }
+
+    int i = 0;
+    while (ite) {
+        sprintf(wgetcmd, "wget -a %s -O %03d.%s %s", opts->wget_logfile, opts->redownload_seq_name[i], opts->sequential_save, ite->value);
+        printf("[wget command] %s\n", wgetcmd);
+        system(wgetcmd);
+        ite = ite->next;
+        i++;
     }
 }
 
@@ -548,14 +588,211 @@ void show_result(opts_t *opts) {
     printf("Finish.\n[Result] %s\n", result);
 }
 
+int get_file_max_row(char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        fprintf(stderr, "file '%s' fopen error.\n", filename);
+        exit(1);
+    }
+    int row_cnt = 0;
+    char c;
+    while ((c = fgetc(file)) != EOF) 
+        if (c == '\n') row_cnt++;
+    fclose(file);
+    return row_cnt;
+}
+
+list_t * get_redownload_links_seq(opts_t *opts, struct dirent **entries, int entry_max) {
+    int links_file_max_row = get_file_max_row(opts->links_file);
+    opts->redownload_seq_name = (int *)calloc(links_file_max_row, sizeof (int));
+    if (!opts->redownload_seq_name) {
+        fprintf(stderr, "redonwload_seq_name calloc error.\n");
+        //free_opts();
+        exit(1);
+    }
+
+    char *seq_name = (char *)calloc(3 + strlen(opts->sequential_save) + 1, 1);
+    if (!seq_name) {
+        fprintf(stderr, "seq_name calloc error.\n");
+        exit(1);
+    }
+    int seq_name_cnt = 0;
+    int entry_cnt = 0;
+    int redownload_seq_name_cnt = 0;
+    for (int seq_name_cnt = 0; seq_name_cnt < links_file_max_row; seq_name_cnt++) {
+        sprintf(seq_name, "%03d.%s", seq_name_cnt, opts->sequential_save); 
+
+        if (seq_name_cnt >= (entry_max - 1)) {
+            opts->redownload_seq_name[redownload_seq_name_cnt] = seq_name_cnt;
+            redownload_seq_name_cnt++;
+            continue;
+        }
+
+        while (seq_name_cnt < entry_max) {
+            if ((entries[entry_cnt]->d_name)[0] == '.') {
+                entry_cnt++;
+                continue;
+            }
+            if (strstr(entries[entry_cnt]->d_name, opts->sequential_save)) {
+                if (strcmp(entries[entry_cnt]->d_name, seq_name) == 0) {
+                    entry_cnt++;
+                    break;
+                }
+                opts->redownload_seq_name[redownload_seq_name_cnt] = seq_name_cnt;
+                redownload_seq_name_cnt++;
+                break;
+            }
+            entry_cnt++;
+        }
+    }
+
+    FILE *links_file = fopen(opts->links_file, "r");
+    if (!links_file) {
+        fprintf(stderr, "file '%s' fopen error.\n", opts->links_file);
+        exit(1);
+    }
+    list_t *head = NULL;
+    list_t *pre = NULL;
+    char c;
+    redownload_seq_name_cnt = 0;
+    for (int i = 0; i < links_file_max_row; i++) {
+        if (i == opts->redownload_seq_name[redownload_seq_name_cnt]) {
+            redownload_seq_name_cnt++;
+            list_t *list = (list_t *)calloc(1, sizeof (list_t));
+            if (!list) {
+                fprintf(stderr, "list calloc error.\n");
+                exit(1);
+            }
+            list->next = NULL;
+            int char_cnt = 0;
+            while ((c = fgetc(links_file)) != EOF) {
+                char_cnt++;
+                if (c == '\n') break;
+            }
+            fseek(links_file, -char_cnt, SEEK_CUR);
+            list->value = (char *)calloc(char_cnt + 1, sizeof (char));
+            if (!list->value) {
+                fprintf(stderr, "list->value calloc error.\n");
+                exit(1);
+            }
+            fgets(list->value, char_cnt, links_file);
+
+            if (!head) head = pre = list;
+            else {
+                pre->next = list;
+                pre = list;
+            }
+        }
+        while ((c = fgetc(links_file)) != EOF) {
+            if (c == '\n') break;
+        }
+    }
+    fclose(links_file);
+    return head;
+}
+
+list_t * get_redownload_links(opts_t *opts) {
+    DIR *save_dir = opendir(opts->savedir);
+    if (!save_dir) {
+        fprintf(stderr, "open directory '%s' error.\n", opts->savedir);
+        //free_opts();
+        exit(1);
+    }
+    closedir(save_dir);
+    struct dirent **entries;
+    int entry_cnt = scandir(opts->savedir, &entries, NULL, alphasort);
+    if (entry_cnt == -1) {
+        fprintf(stderr, "directory '%s' is empty.\n", opts->savedir);
+        //free_opts();
+        exit(1);
+    }
+
+    if (opts->sequential_save) {
+        return get_redownload_links_seq(opts, entries, entry_cnt);
+    }
+
+    int links_file_max_row = get_file_max_row(opts->links_file);
+    FILE *links_file = fopen(opts->links_file, "r");
+    if (!links_file) {
+        fprintf(stderr, "file '%s' fopen error.\n", opts->links_file);
+        exit(1);
+    }
+    list_t *head = NULL;
+    list_t *pre = NULL;
+    char c;
+    char *link_name = NULL;
+    int link_name_len = 0;
+    int link_len = 0;
+    int slash_index = 0;
+    for (int i = 0; i < links_file_max_row; i++) {
+        if (link_name) free(link_name);
+        link_len = 0;
+        while ((c = fgetc(links_file)) != EOF) {
+            link_len++;
+            if (c == '/') {
+                slash_index = link_len;
+            }
+            if (c == '\n') break;
+        }
+        link_name_len = link_len - slash_index;
+        fseek(links_file, -link_name_len, SEEK_CUR);
+        link_name = (char *)calloc(link_name_len + 1, sizeof (char));
+        if (!link_name) {
+            fprintf(stderr, "link_name calloc error.\n");
+            exit(1);
+        }
+        fgets(link_name, link_name_len, links_file);
+
+        int exist_flag = 0;
+        for (int j = 0; j < entry_cnt; j++) {
+            if (strcmp(link_name, entries[j]->d_name) == 0) {
+                exist_flag = 1;
+                break;
+            }
+        }
+        if (exist_flag) {
+            fseek(links_file, 1, SEEK_CUR);
+            continue;
+        }
+
+        fseek(links_file, -(link_len - 1), SEEK_CUR);
+        list_t *list = (list_t *)calloc(1, sizeof (list_t));
+        if (!list) {
+            fprintf(stderr, "list calloc error.\n");
+            exit(1);
+        }
+        list->next = NULL;
+        list->value = (char *)calloc(link_len + 1, sizeof (char));
+        if (!list->value) {
+            fprintf(stderr, "list->value calloc error.\n");
+            exit(1);
+        }
+        fgets(list->value, link_len, links_file);
+        if (!head) head = pre = list;
+        else {
+            pre->next = list;
+            pre = list;
+        }
+        fseek(links_file, 1, SEEK_CUR);
+    }
+    fclose(links_file);
+    return head;
+}
+
 int main(int argc, char **argv) {
     opts_t *opts = parse_opts(argc, argv);
     default_opts(opts);
-    mk_savedir(opts);
-    cd_savedir(opts);
-    wget_mainpage(opts);
-    mainpage_t *mainpage = parse_mainpage(opts);
-    link_t *links = get_tag_links(opts, mainpage);
-    wget_linksfile(opts, links);
-    show_result(opts);
+
+    if (opts->redownload) {
+        list_t *links = get_redownload_links(opts);
+        wget_redownload(opts, links);
+    } else {
+        mk_savedir(opts);
+        cd_savedir(opts);
+        wget_mainpage(opts);
+        mainpage_t *mainpage = parse_mainpage(opts);
+        list_t *links = get_tag_links(opts, mainpage);
+        wget_linksfile(opts, links);
+        show_result(opts);
+    }
 }
