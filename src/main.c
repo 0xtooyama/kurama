@@ -18,28 +18,26 @@
 #define SRC_ATTR  2
 
 struct option long_options[] = {
-    {"url", required_argument, NULL, (int)'u'},
     {"savedir", required_argument, NULL, (int)'s'},
-    {"fmt", required_argument, NULL, (int)'f'},
-    {"mainpage", required_argument, NULL, (int)'m'},
+    {"format", required_argument, NULL, (int)'f'},
     {"logfile", required_argument, NULL, (int)'l'},
     {"tag", required_argument, NULL, (int)'t'},
-    {"seq_name", required_argument, NULL, (int)'1'},
+    {"seqname", required_argument, NULL, (int)'1'},
     {"redownload", no_argument, NULL, (int)'r'},
     {0, 0, 0, 0}
 };
 
 typedef struct {
-    char *url;
-    int urllen;
     char *savedir;
     char *targetfmt;
-    char *mainpage_name;
     char *wget_logfile;
     int targettag;
     char *sequential_save;
     int redownload;
 
+    char *url;
+    int urllen;
+    char *mainpage_name;
     char *links_file;
     char *url_scheme;
     char *url_root;
@@ -66,6 +64,28 @@ typedef struct list_t {
     struct list_t *next;
 } list_t;
 
+void show_help() {
+    printf("Usage: kurama [OPTION]... -f FORMAT URL\n");
+    printf("   or: kurama [OPTION]... -r\n");
+    printf("Download the link contents included in the page specified by URL using wget.\n");
+    printf("Only the link contents containing the string specified by FORMAT in the URL \n");
+    printf("will be downloaded.\n");
+    printf("\n");
+    printf("Mandatory arguments to long options are mandatory for short options too.\n");
+    printf("  -h, --help               display this help and exit.\n");
+    printf("  -f, --format FORMAT      The FORMAT is a string contained in the link to \n");
+    printf("                           be downloaded.\n");
+    printf("  -s, --savedir DIRNAME    The contents downloaded by wget is stored to \n");
+    printf("                           the directory specified by DIRNAME.\n");
+    printf("  -l, --logfile LOGFILE    specify the logfile.\n");
+    printf("  -t, --tag TAG            specify the html tag containing the url of content \n");
+    printf("                           to be downloaded.\n");
+    printf("  -r, --redownload         redownload the failed file.\n");
+    printf("      --seqname SUFFIX     rename the downloaded files name to 0-based sequential \n");
+    printf("                           number and attached SUFFIX.\n");
+    exit(0);
+}
+
 opts_t * parse_opts(int argc, char **argv) {
     opts_t *opts = (opts_t *)calloc(1, sizeof(opts_t));
     if (!opts) {
@@ -75,7 +95,7 @@ opts_t * parse_opts(int argc, char **argv) {
     //TODO init_opts_t(opts);
 
     int opt = 0;
-    while ((opt = getopt_long(argc, argv, "u:s:f:m:l:t:r", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "s:f:l:t:rh", long_options, NULL)) != -1) {
         char *opt_value = NULL;
         if (optarg != 0) {
             opt_value = (char *)calloc(strlen(optarg) + 1, sizeof(char));
@@ -90,18 +110,11 @@ opts_t * parse_opts(int argc, char **argv) {
         else strcpy(opt_value, optarg);
 
         switch (opt) {
-            case 'u': 
-                opts->url = opt_value;
-                opts->urllen = strlen(opt_value);
-                break;
             case 's':
                 opts->savedir = opt_value;
                 break;
             case 'f':
                 opts->targetfmt = opt_value;
-                break;
-            case 'm':
-                opts->mainpage_name = opt_value;
                 break;
             case 'l':
                 opts->wget_logfile = opt_value;
@@ -118,6 +131,9 @@ opts_t * parse_opts(int argc, char **argv) {
                 break;
             case 'r':
                 opts->redownload = 1;
+                break;
+            case 'h': 
+                show_help();
                 break;
             default :
                 // free_opts(opts);
