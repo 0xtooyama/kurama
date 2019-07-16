@@ -252,6 +252,36 @@ void default_opts(opts_t *opts) {
     }
 }
 
+void check_opts(opts_t *opts) {
+    if (opts->redownload) {
+        if (opts->targetfmt || opts->targettag || opts->url) {
+            fprintf(stderr, "-r, --redownload can not be used with -f, -t and URL.\n");
+            // free_opts()
+            exit(1);
+        }
+        return;
+    }
+
+    if (!opts->url) {
+        fprintf(stderr, "URL is required.\n");
+        // free_opts()
+        exit(1);
+    }
+
+    if (!opts->targetfmt) {
+        fprintf(stderr, "-f is required.\n");
+        // free_opts()
+        exit(1);
+    }
+}
+
+opts_t *init_opts(int argc, char **argv) {
+    opts_t *opts = parse_opts(argc, argv);
+    check_opts(opts);
+    default_opts(opts);
+    return opts;
+}
+
 void mk_savedir(opts_t *opts) {
     char *savedir = opts->savedir;
     DIR *savedirp = opendir(savedir);
@@ -796,9 +826,7 @@ list_t * get_redownload_links(opts_t *opts) {
 }
 
 int main(int argc, char **argv) {
-    opts_t *opts = parse_opts(argc, argv);
-    default_opts(opts);
-
+    opts_t *opts = init_opts(argc, argv);
     if (opts->redownload) {
         list_t *links = get_redownload_links(opts);
         wget_redownload(opts, links);
