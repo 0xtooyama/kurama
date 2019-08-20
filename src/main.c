@@ -24,6 +24,7 @@ struct option long_options[] = {
     {"tag", required_argument, NULL, (int)'t'},
     {"seqname", required_argument, NULL, (int)'1'},
     {"redownload", no_argument, NULL, (int)'r'},
+    {"skipconf", no_argument, NULL, (int)'2'},
     {0, 0, 0, 0}
 };
 
@@ -34,6 +35,7 @@ typedef struct {
     int targettag;
     char *sequential_save;
     int redownload;
+    int skipconf;
 
     char *url;
     int urllen;
@@ -134,6 +136,9 @@ opts_t * parse_opts(int argc, char **argv) {
                 break;
             case 'h': 
                 show_help();
+                break;
+            case '2':
+                opts->skipconf = 1;
                 break;
             default :
                 // free_opts(opts);
@@ -553,7 +558,7 @@ void output_links(opts_t *opts, list_t *links) {
     fclose(linksp);
 }
 
-void wget_confilm(list_t *links) {
+void wget_confilm(list_t *links, int skipconf) {
     list_t *ite = links;
     int links_cnt = 0;
     printf("====confilm download files====\n");
@@ -565,7 +570,8 @@ void wget_confilm(list_t *links) {
     printf("=============================\n");
     printf("Do you want to download %d files? (y/n) > ", links_cnt);
     char input;
-    scanf("%c", &input);
+    if (skipconf) input = 'y';
+    else scanf("%c", &input);
     if (input == 'y') {
         printf("Start download.\n");
     } else {
@@ -576,7 +582,7 @@ void wget_confilm(list_t *links) {
 
 void wget_linksfile(opts_t *opts, list_t *links) {
     output_links(opts, links);
-    wget_confilm(links);
+    wget_confilm(links, opts->skipconf);
     char wgetcmd[2048];
     if (opts->sequential_save == NULL) {
         sprintf(wgetcmd, "wget -a %s -i %s", opts->wget_logfile, opts->links_file);
@@ -597,7 +603,7 @@ void wget_linksfile(opts_t *opts, list_t *links) {
 }
 
 void wget_redownload(opts_t *opts, list_t *links) {
-    wget_confilm(links);
+    wget_confilm(links, opts->skipconf);
     char wgetcmd[2048];
     list_t *ite = links;
 
